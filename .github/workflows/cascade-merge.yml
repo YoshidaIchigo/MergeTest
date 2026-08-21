@@ -4,10 +4,10 @@ on:
   push:
     # ver1, ver2, ver3, ver4 へのPush（PRマージ含む）をトリガーに実行
     branches:
-      - 'ver1'
-      - 'ver2'
-      - 'ver3'
-      - 'ver4'
+      - 'release/ver1.0'
+      - 'release/ver2.0'
+      - 'release/ver3.0'
+      - 'release/ver4.0'
 
 jobs:
   cascade-merge:

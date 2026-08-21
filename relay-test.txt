@@ -1,0 +1,3 @@
+Hello Cascade Merge!
+追加したよ！
+絶対コンフリクトしないよーん！

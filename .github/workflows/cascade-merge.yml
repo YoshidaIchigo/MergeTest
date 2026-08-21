@@ -1,0 +1,73 @@
+name: Cascade Merge Relay
+
+on:
+  push:
+    # ver1, ver2, ver3, ver4 へのPush（PRマージ含む）をトリガーに実行
+    branches:
+      - 'ver1'
+      - 'ver2'
+      - 'ver3'
+      - 'ver4'
+
+jobs:
+  cascade-merge:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.CASCADE_MERGE_PAT }}
+
+      - name: Setup Git user
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Determine Target Branch and Execute Relay
+        env:
+          GITHUB_TOKEN: ${{ secrets.CASCADE_MERGE_PAT }}
+        run: |
+          # 1. 変更がプッシュされた現在のブランチを取得 (例: ver1)
+          CURRENT_BRANCH="${GITHUB_REF#refs/heads/}"
+          
+          # バージョン番号（数字部分）を抽出
+          CURRENT_NUM=$(echo "$CURRENT_BRANCH" | sed 's/ver//')
+          TARGET_NUM=$((CURRENT_NUM + 1))
+          TARGET_BRANCH="ver${TARGET_NUM}"
+          
+          echo "=== マージリレー処理開始: ${CURRENT_BRANCH} -> ${TARGET_BRANCH} ==="
+          
+          # 2. ターゲットブランチが存在するかチェック
+          if ! git rev-parse --verify origin/$TARGET_BRANCH >/dev/null 2>&1; then
+            echo "ターゲットブランチ ${TARGET_BRANCH} が存在しないため、リレーを終了します。"
+            exit 0
+          fi
+          
+          # 3. ターゲットブランチをチェックアウト
+          git checkout $TARGET_BRANCH
+          
+          # 4. 自動マージを試行
+          if git merge --no-ff --no-commit origin/$CURRENT_BRANCH; then
+            echo "✅ ${CURRENT_BRANCH} から ${TARGET_BRANCH} への自動マージ成功！"
+            git commit -m "chore: Cascade auto-merge from ${CURRENT_BRANCH}"
+            git push origin $TARGET_BRANCH
+            echo "次の中継イベントが自動発火します。"
+          else
+            echo "⚠️ ${CURRENT_BRANCH} から ${TARGET_BRANCH} へのマージでコンフリクト発生！"
+            
+            TEMP_BRANCH="relay/conflict-${CURRENT_BRANCH}-to-${TARGET_BRANCH}"
+            
+            # マーカーが入った状態で作業ブランチを作成・Push
+            git checkout -b $TEMP_BRANCH
+            git add .
+            git commit -m "conflict: Needs manual resolution for cascade merge from ${CURRENT_BRANCH}"
+            git push origin $TEMP_BRANCH --force
+            
+            # コンフリクト解決用PRを自動作成
+            gh pr create \
+              --title "⚠️ [要手動解消] Cascade Merge: ${CURRENT_BRANCH} -> ${TARGET_BRANCH}" \
+              --body "自動マージリレー中にコンフリクトが発生したためバトンを一時停止しました。${TEMP_BRANCH} ブランチで衝突を修正してマージしてください。マージ完了後、次のバージョンへのリレーが再開されます。" \
+              --base $TARGET_BRANCH \
+              --head $TEMP_BRANCH
+          fi
